@@ -1,0 +1,153 @@
+name: Lab 4 Git practice
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Practice phase
+        required: true
+        type: choice
+        options:
+          - publish
+          - sync
+          - contribute
+          - final
+      before_web_sha:
+        description: Commit before the README web edit (sync only)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  practice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TARGET_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      BEFORE_WEB_SHA: ${{ inputs.before_web_sha }}
+    steps:
+      - name: Clone and configure the isolated working copy
+        shell: bash
+        run: |
+          set -eu
+          git --version
+          git clone "https://github.com/${TARGET_REPO}.git" lab
+          cd lab
+          git config user.name L0vvk3y
+          git config user.email 353689098+L0vvk3y@users.noreply.github.com
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $auth"
+          git remote add upstream https://github.com/octocat/Spoon-Knife.git
+          git remote -v
+          git status --short
+
+      - name: Publish the initial lab project with git push
+        if: inputs.phase == 'publish'
+        shell: bash
+        run: |
+          set -eu
+          cd lab
+          cp README.md UPSTREAM_README.md
+          cat > README.md <<'EOF'
+          # Lab 4: remote Git practice
+
+          Учебный проект для проверки clone, push, pull, fork и pull request.
+
+          ## Запуск
+
+          `python main.py`
+
+          Проект не требует сторонних библиотек. Практика выполняется индивидуально.
+          Основа fork: https://github.com/octocat/Spoon-Knife, исходное описание сохранено в UPSTREAM_README.md.
+          EOF
+          cat > main.py <<'EOF'
+          def greet(name="student"):
+              return f"Hello, {name}!"
+
+
+          if __name__ == "__main__":
+              print(greet())
+          EOF
+          cat > .gitignore <<'EOF'
+          # Python
+          __pycache__/
+          *.py[cod]
+          .venv/
+
+          # IDE settings
+          .idea/
+          .vscode/
+
+          # Local runtime files
+          .env
+          *.log
+          EOF
+          git add README.md UPSTREAM_README.md main.py .gitignore
+          git commit -m "Add lab project and ignore rules"
+          git push origin main
+          echo "BEFORE_WEB_SHA=$(git rev-parse HEAD)"
+          python main.py
+
+      - name: Receive the actual README web edit with git pull
+        if: inputs.phase == 'sync'
+        shell: bash
+        run: |
+          set -eu
+          cd lab
+          [[ "$BEFORE_WEB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # Reproduce the pre-edit local state in this new runner copy.
+          git checkout -B main "$BEFORE_WEB_SHA"
+          echo "LOCAL_BEFORE=$(git rev-parse HEAD)"
+          git pull --ff-only origin main
+          echo "LOCAL_AFTER=$(git rev-parse HEAD)"
+          grep -F 'Обновление README через веб-интерфейс' README.md
+          git status --short
+
+      - name: Create and publish the description branch
+        if: inputs.phase == 'contribute'
+        shell: bash
+        run: |
+          set -eu
+          cd lab
+          git switch -c feature/add-description
+          cat > description.md <<'EOF'
+          # Описание проекта
+
+          В репозитории отрабатываются синхронизация копии с GitHub и обсуждение изменений через pull request.
+
+          Изменения предлагаются отдельной веткой, проверяются перед слиянием и затем получаются в main.
+          Этот пример выполняется индивидуально: комментарий к PR является самопроверкой автора.
+          EOF
+          git add description.md
+          git commit -m "docs: add project description"
+          git push -u origin feature/add-description
+          git log -1 --oneline
+
+      - name: Synchronize upstream and verify the finished project
+        if: inputs.phase == 'final'
+        shell: bash
+        run: |
+          set -eu
+          cd lab
+          git fetch upstream
+          git merge --ff-only upstream/main
+          git pull --ff-only origin main
+          test -f description.md
+          mkdir -p .idea .vscode .venv __pycache__
+          printf 'demo\n' > .idea/workspace.xml
+          printf '{}\n' > .vscode/settings.json
+          printf 'demo\n' > .venv/pyvenv.cfg
+          printf 'demo\n' > __pycache__/main.pyc
+          printf 'MODE=demo\n' > .env
+          printf 'demo\n' > debug.log
+          git check-ignore -v .idea/workspace.xml .vscode/settings.json .venv/pyvenv.cfg __pycache__/main.pyc .env debug.log
+          test -z "$(git ls-files .idea .vscode .venv __pycache__ .env debug.log)"
+          python main.py
+          test -z "$(git status --porcelain)"
+          git fsck --full
+          git log --graph --oneline --decorate --max-count=10
+          echo 'ALL_CHECKS_PASSED'
