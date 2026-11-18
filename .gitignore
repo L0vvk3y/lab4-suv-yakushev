@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Local runtime files
+.env
+*.log
