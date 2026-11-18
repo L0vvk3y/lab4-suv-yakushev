@@ -133,6 +133,8 @@ jobs:
         run: |
           set -eu
           cd lab
+          git merge --no-ff origin/feature/add-description -m "Merge pull request #1 from L0vvk3y/feature/add-description"
+          git push origin main
           git fetch upstream
           git merge --ff-only upstream/main
           git pull --ff-only origin main
